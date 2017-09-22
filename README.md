@@ -1,23 +1,14 @@
-# Yelp Fusion API Python Code Sample
+# ChooseLunch
 
 ## Overview
-This program demonstrates the capability of the Yelp Fusion API
-by using the Search API to query for businesses by a search term and location,
-and the Business API to query additional information about the top result
-from the search query.
+Lunch decision maker based on Yelp Fusion API code sample.
 
-Please refer to [API documentation](https://www.yelp.com/developers/documentation/v3)
-for more details.
+Refer to http://www.yelp.com/developers/v3/documentation for the API
+documentation.
 
-
-## Steps to run
-
+## Installation
 To install the dependencies, run:
 `pip install -r requirements.txt`.
 
-Run the code sample without specifying any arguments:
-`python sample.py`
-
-Run the code sample by specifying the optional arguments:
-`python sample.py --term="bars" --location="San Francisco, CA"`
-# ChooseLunch
+## Steps to run
+`python choose.py --term="bars" --location="San Francisco, CA"`
