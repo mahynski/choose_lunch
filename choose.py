@@ -38,8 +38,8 @@ except ImportError:
 # OAuth credential placeholders that must be filled in by users.
 # You can find them on
 # https://www.yelp.com/developers/v3/manage_app
-CLIENT_ID = "sfG6rzcVCOqIhPEY2KLWEA" # None
-CLIENT_SECRET = "7bre1ekULBlM5uYOK1BlU87ikc7AgpY1SUrurmAWGfjkbHDFOORE2TLvFzOqqowz" # None
+CLIENT_ID = "sfG6rzcVCOqIhPEY2KLWEA"
+CLIENT_SECRET = "7bre1ekULBlM5uYOK1BlU87ikc7AgpY1SUrurmAWGfjkbHDFOORE2TLvFzOqqowz"
 
 # API constants, you shouldn't have to change these.
 API_HOST = 'https://api.yelp.com'
@@ -52,7 +52,7 @@ GRANT_TYPE = 'client_credentials'
 DEFAULT_TERM = 'lunch'
 LOCS = ['Gaithersburg, MD']#, 'Rockville, MD']
 DEFAULT_LOCATION = 'Gaithersburg, MD'#LOCS[random.randint(0, len(LOCS)-1)]
-SEARCH_LIMIT = 5
+SEARCH_LIMIT = 20
 VISITED = 'visited.json'
 
 def obtain_bearer_token(host, path):
@@ -181,48 +181,64 @@ def query_api(term, location, histogram, limit):
         limit (int): Max number of queries to choose from.
     """
 
-    bearer_token = obtain_bearer_token(API_HOST, TOKEN_PATH)
-    response = search(bearer_token, term, location, limit)
-    businesses = response.get('businesses')
+    found = False
+    while not found:
+        bearer_token = obtain_bearer_token(API_HOST, TOKEN_PATH)
+        response = search(bearer_token, term, location, limit)
+        businesses = response.get('businesses')
 
-    if not businesses:
-        print(u'No businesses for {0} in {1} found.'.format(term, location))
-        return
+        if not businesses:
+            print(u'No businesses for {0} in {1} found.'.format(term, location))
+            return
 
-    if (os.path.isfile(histogram)):
-        f = open(histogram, 'r')
-        hist = json.load(f)
-        f.close()
-    else:
-        hist = {}
+        if (os.path.isfile(histogram)):
+            f = open(histogram, 'r')
+            hist = json.load(f)
+            f.close()
+        else:
+            hist = {}
 
-    # Choose business
-    probs = assign_prob(hist, businesses)
+        # Choose business
+        probs = assign_prob(hist, businesses)
 
-    # Biased choice
-    choice = numpy.random.choice(numpy.arange(0, limit), p=probs)
-    # Random choice
-    # choice = random.randint(0, limit-1)
+        # Biased choice
+        choice = numpy.random.choice(numpy.arange(0, len(probs)), p=probs)
+        # Random choice
+        # choice = random.randint(0, limit-1)
 
-    business_id = businesses[choice]['id']
-    response = get_business(bearer_token, business_id)
+        business_id = businesses[choice]['id']
+        response = get_business(bearer_token, business_id)
 
-    print("Today's choice is...")
-    print("********************************************************")
-    print(businesses[choice]['name'])
-    loc = businesses[choice]['location']['display_address'][0]
-    for i in range(1, len(businesses[choice]['location']['display_address'])):
-        loc += ', '+businesses[choice]['location']['display_address'][i]
-    print(loc)
-    print("Rating: "+str(businesses[choice]['rating'])+" with "+str(businesses[choice]['review_count'])+" reviews")
-    print("Is open?: "+str(not businesses[choice]['is_closed']))
-    print("Website: "+str(businesses[choice]['url']))
-    print("********************************************************")
+        print("Today's choice is...")
+        print("********************************************************")
+        print(businesses[choice]['name'])
+        loc = businesses[choice]['location']['display_address'][0]
+        for i in range(1, len(businesses[choice]['location']['display_address'])):
+            loc += ', '+businesses[choice]['location']['display_address'][i]
+        print(loc)
+        print("Rating: "+str(businesses[choice]['rating'])+" with "+str(businesses[choice]['review_count'])+" reviews")
+        print("Is open?: "+str(not businesses[choice]['is_closed']))
+        print("Website: "+str(businesses[choice]['url']))
+        print("********************************************************")
 
-    if (business_id in hist):
-        hist[business_id] += 1
-    else:
-        hist[business_id] = 1
+        if (business_id in hist):
+            hist[business_id] += 1
+        else:
+            hist[business_id] = 1
+
+        select = False
+        while not select:
+            input_var = raw_input("Accept this choice? [y/n]: ")
+            if (("y" in input_var or "Y" in input_var) and ("n" not in input_var and "N" not in input_var)):
+                # Chose to accept this choice
+                select = True
+                found = True
+            elif (("y" not in input_var and "Y" not in input_var) and ("n" in input_var or "N" in input_var)):
+                # Reject this choice, try again
+                select = True
+            else:
+                # Failed to correctly make a choice, try again
+                continue
 
     f = open(histogram, 'w')
     json.dump(hist, f, indent=True, sort_keys=True)
