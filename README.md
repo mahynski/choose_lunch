@@ -11,4 +11,7 @@ To install the dependencies, run:
 `pip install -r requirements.txt`.
 
 ## Steps to run
-`python choose.py --term="bars" --location="San Francisco, CA"`
+`python choose.py --term="lunch" --location="Gaithersburg, MD" --visited="visited.json" --max=5`
+
+For help, see
+`python choose.py -h`
