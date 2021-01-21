@@ -39,7 +39,7 @@ $ cat /path/to/choose_lunch/credentials.json
 ## Steps to run
 ~~~ bash
 $ cd /path/to/choose_lunch/
-$ python choose.py --term="lunch" --location="Gaithersburg, MD" --visited="visited.json" --max=5
+$ python choose.py --term="lunch" --location="Gaithersburg, MD" --visited="visited.json" --max=100 --credentials="credentials.json"
 ~~~
 
 For help, see
