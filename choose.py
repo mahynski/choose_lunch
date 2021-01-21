@@ -1,163 +1,83 @@
 """
-Lunch decision maker based on Yelp Fusion API code sample.
+Created on Wed Jan 20 17:06:32 2021
 
-author: nam
+@author: nam
 """
-from __future__ import print_function
 
-import argparse
-import json
-import os.path
-import pprint
-import random
-import sys
-import urllib
-
-import numpy
 import requests
+import json
+import os
+import numpy
+import argparse
+from urllib.error import HTTPError
+import sys
 
-# This client code can run on Python 2.x or 3.x.  Your imports can be
-# simpler if you only need one of those.
-try:
-    # For Python 3.0 and later
-    from urllib.error import HTTPError
-    from urllib.parse import quote, urlencode
-except ImportError:
-    # Fall back to Python 2's urllib2 and urllib
-    from urllib import quote, urlencode
-
-    from urllib2 import HTTPError
-
-# OAuth credential placeholders that must be filled in by users.
-# You can find them on https://www.yelp.com/developers/v3/manage_app
-creds = json.load(open("credentials.json", "r"))
-CLIENT_ID = creds["CLIENT_ID"]
-CLIENT_SECRET = creds["CLIENT_SECRET"]
-
-# API constants, you shouldn't have to change these.
-API_HOST = "https://api.yelp.com"
-SEARCH_PATH = "/v3/businesses/search"
-BUSINESS_PATH = "/v3/businesses/"  # Business ID will come after slash.
-TOKEN_PATH = "/oauth2/token"
-GRANT_TYPE = "authorization_code"  # "client_credentials"
-
-# Defaults for our simple example.
-DEFAULT_TERM = "lunch"
-LOCS = ["Gaithersburg, MD"]  # , 'Rockville, MD']
-DEFAULT_LOCATION = "Gaithersburg, MD"  # LOCS[random.randint(0, len(LOCS)-1)]
-SEARCH_LIMIT = 20
-VISITED = "visited.json"
-
-
-def obtain_bearer_token(host, path):
+def search(term, 
+           location, 
+           search_limit,
+           credentials
+           ):
     """
-    Given a bearer token, send a GET request to the API.
-
-    Args:
-        host (str): The domain host of the API.
-        path (str): The path of the API after the domain.
-        url_params (dict): An optional set of query parameters in the request.
-
-    Returns:
-        str: OAuth bearer token, obtained using client_id and client_secret.
-
-    Raises:
-        HTTPError: An error occurs from the HTTP request.
+    Search Yelp using Fusion API.
+    
+    Parameters
+    ----------
+    term : str
+        Search term to use.
+    location : str
+        Geographic location use.
+    search_limit : int
+        Max number of hits to return.
+    credentials : str
+        Name of json file with user's API_KEY in it.
+        
+    Returns
+    -------
+    restaurants : list(dict)
+        List of top results from search.
     """
-    url = "{0}{1}".format(host, quote(path.encode("utf8")))
-    assert CLIENT_ID, "Please supply your client_id."
-    assert CLIENT_SECRET, "Please supply your client_secret."
-    data = urlencode(
-        {
-            "client_id": CLIENT_ID,
-            "client_secret": CLIENT_SECRET,
-            "grant_type": GRANT_TYPE,
-        }
-    )
-    headers = {
-        "content-type": "application/x-www-form-urlencoded",
-    }
-    response = requests.request("POST", url, data=data, headers=headers)
-    print(response.json())
-    bearer_token = response.json()["access_token"]
+    # Read your API_KEY
+    try:
+        api_key = json.load(open(credentials, "r"))["API_KEY"]
+    except Exception as e:
+        raise Exception("Unable to load credentials : {}".format(e))
 
-    return bearer_token
+    headers = {"Authorization": "Bearer %s" % api_key}
+    search_params = {
+            "term":term,
+            "location":location,
+            "search_limit":search_limit
+            }
+    
+    req = requests.get("https://api.yelp.com/v3/businesses/search", 
+                       params=search_params, 
+                       headers=headers)
 
+    if req.status_code == 200: # Code 200 = success
+        restaurants = json.loads(req.text)["businesses"]
+    else:
+        raise Exception("Bad search criteria")
+        
+    return restaurants
 
-def request(host, path, bearer_token, url_params=None):
+def assign_prob(hist, restaurants):
     """
-    Given a bearer token, send a GET request to the API.
+    Assign the normalized relative probability of choosing a restaurant.
 
-    Args:
-        host (str): The domain host of the API.
-        path (str): The path of the API after the domain.
-        bearer_token (str): OAuth bearer token, obtained using client_id and client_secret.
-        url_params (dict): An optional set of query parameters in the request.
+    Parameters
+    ----------
+    hist : dict
+        Dictionary of business id's and frequency of past visits.
+    restaurants : list(dict)
+        List of businesses found from search() function.
 
-    Returns:
-        dict: The JSON response from the request.
-
-    Raises:
-        HTTPError: An error occurs from the HTTP request.
-    """
-    url_params = url_params or {}
-    url = "{0}{1}".format(host, quote(path.encode("utf8")))
-    headers = {
-        "Authorization": "Bearer %s" % bearer_token,
-    }
-    response = requests.request("GET", url, headers=headers, params=url_params)
-
-    return response.json()
-
-
-def search(bearer_token, term, location, limit):
-    """
-    Query the Search API by a search term and location.
-
-    Args:
-        term (str): The search term passed to the API.
-        location (str): The search location passed to the API.
-
-    Returns:
-        dict: The JSON response from the request.
-    """
-    url_params = {
-        "term": term.replace(" ", "+"),
-        "location": location.replace(" ", "+"),
-        "limit": limit,
-    }
-
-    return request(API_HOST, SEARCH_PATH, bearer_token, url_params=url_params)
-
-
-def get_business(bearer_token, business_id):
-    """
-    Query the Business API by a business ID.
-
-    Args:
-        business_id (str): The ID of the business to query.
-
-    Returns:
-        dict: The JSON response from the request.
-    """
-    business_path = BUSINESS_PATH + business_id
-
-    return request(API_HOST, business_path, bearer_token)
-
-
-def assign_prob(hist, businesses):
-    """
-    Assign the normalized relative probability of choosing a business.
-
-    Args:
-        hist (dict): Dictionary of business id's and frequency of past visits.
-        businesses (list): List of businesses found by Yelp API.
-
-    Returns:
-        ndarray: Ordered array of normalized probabilities.
+    Returns
+    -------
+    prob : ndarray
+        Normalized probability of choosing each restaurant.
     """
     prob = []
-    for b in [businesses[i]["id"] for i in range(len(businesses))]:
+    for b in [restaurants[i]["id"] for i in range(len(restaurants))]:
         try:
             hist[b]
         except KeyError:
@@ -171,104 +91,111 @@ def assign_prob(hist, businesses):
 
     return prob
 
-
-def query_api(term, location, histogram, limit):
+def decide(term, location, search_limit, histogram, credentials):
     """
-    Query the API by the input values from the user.
-
-    Prints choice and records the result in the histogram.
-
-    Args:
-        term (str): The search term to query.
-        location (str): The location of the business to query.
-        histogram (str): Name of histogram file.
-        limit (int): Max number of queries to choose from.
+    Decide where to go for lunch.
+    
+    Will make a decision biased toward places not previously visited.  The user
+    will be prompted to accept this choice.  If accepted, the histogram is
+    updated and written to disk.
+    
+    Parameters
+    ----------
+    term : str
+        Search term to use.
+    location : str
+        Geographic location use.
+    search_limit : int
+        Max number of hits to return.
+    histogram : str
+        Name of file where histogram of previous visits is stored.
+    credentials : str
+        Name of json file with user's API_KEY in it.
+        
     """
-    found = False
-    while not found:
-        bearer_token = obtain_bearer_token(API_HOST, TOKEN_PATH)
-        response = search(bearer_token, term, location, limit)
-        businesses = response.get("businesses")
+    # Yelp search
+    try:
+        restaurants = search(term, location, search_limit, credentials)
+    except Exception as e:
+        raise Exception("Unable to decide : {}".format(e))
+        
+    # Load history of choices
+    if os.path.isfile(histogram):
+        f = open(histogram, "r")
+        hist = json.load(f)
+        f.close()
+    else:
+        hist = {}
+            
+    # Assign bias
+    probs = assign_prob(hist, restaurants)
 
-        if not businesses:
-            print(u"No businesses for {0} in {1} found.".format(term, location))
-            return
-
-        if os.path.isfile(histogram):
-            f = open(histogram, "r")
-            hist = json.load(f)
-            f.close()
-        else:
-            hist = {}
-
-        # Choose business
-        probs = assign_prob(hist, businesses)
-
-        # Biased choice
+    decided = False
+    while not decided:
+        # Make biased choice
         choice = numpy.random.choice(numpy.arange(0, len(probs)), p=probs)
-        # Random choice
-        # choice = random.randint(0, limit-1)
-
-        business_id = businesses[choice]["id"]
-        response = get_business(bearer_token, business_id)
-
+            
+        # Display choice
         print("Today's choice is...")
         print("********************************************************")
-        print(businesses[choice]["name"])
-        loc = businesses[choice]["location"]["display_address"][0]
+        print(restaurants[choice]["name"])
+        loc = restaurants[choice]["location"]["display_address"][0]
         for i in range(
-            1, len(businesses[choice]["location"]["display_address"])
+            1, len(restaurants[choice]["location"]["display_address"])
         ):
-            loc += ", " + businesses[choice]["location"]["display_address"][i]
+            loc += ", " + restaurants[choice]["location"]["display_address"][i]
         print(loc)
         print(
             "Rating: "
-            + str(businesses[choice]["rating"])
+            + str(restaurants[choice]["rating"])
             + " with "
-            + str(businesses[choice]["review_count"])
+            + str(restaurants[choice]["review_count"])
             + " reviews"
         )
-        print("Is open?: " + str(not businesses[choice]["is_closed"]))
-        print("Website: " + str(businesses[choice]["url"]))
+        print("Is open?: " + str(not restaurants[choice]["is_closed"]))
+        print("Website: " + str(restaurants[choice]["url"]))
         print("********************************************************")
-
-        if business_id in hist:
-            hist[business_id] += 1
-        else:
-            hist[business_id] = 1
-
+        
+        # Prompt user to accept this?
         select = False
         while not select:
-            input_var = raw_input("Accept this choice? [y/n]: ")
+            input_var = input("Accept this choice? [y/n]: ")
             if ("y" in input_var or "Y" in input_var) and (
                 "n" not in input_var and "N" not in input_var
             ):
-                # Chose to accept this choice
+                # Accept this choice
                 select = True
-                found = True
+                decided = True
+                
+                # Increment histogram
+                business_id = restaurants[choice]["id"]
+                if business_id in hist:
+                    hist[business_id] += 1
+                else:
+                    hist[business_id] = 1
             elif ("y" not in input_var and "Y" not in input_var) and (
                 "n" in input_var or "N" in input_var
             ):
                 # Reject this choice, try again
                 select = True
             else:
-                # Failed to correctly make a choice, try again
+                # User failed to correctly specify a choice, try again
                 continue
-
+            
+    # Dump updated histogram
     f = open(histogram, "w")
     json.dump(hist, f, indent=True, sort_keys=True)
     f.close()
-
-
-def main():
+        
+if __name__ == "__main__":
     """Choose your lunch provider."""
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "-q",
+        "-t",
         "--term",
         dest="term",
-        default=DEFAULT_TERM,
+        default="lunch",
         type=str,
         help="Search term (default: %(default)s)",
     )
@@ -276,7 +203,7 @@ def main():
         "-l",
         "--location",
         dest="location",
-        default=DEFAULT_LOCATION,
+        default="Gaithersburg, MD",
         type=str,
         help="Search location (default: %(default)s)",
     )
@@ -284,15 +211,23 @@ def main():
         "-v",
         "--visited",
         dest="histogram",
-        default=VISITED,
+        default="visited.json",
         type=str,
         help="Histogram of visited restaurants (default: %(default)s)",
     )
     parser.add_argument(
         "-m",
         "--max",
-        dest="limit",
-        default=SEARCH_LIMIT,
+        dest="search_limit",
+        default=100,
+        type=int,
+        help="Number of top queries to choose from (default: %(default)d)",
+    )
+    parser.add_argument(
+        "-c",
+        "--credentials",
+        dest="credentials",
+        default="credentials.json",
         type=str,
         help="Number of top queries to choose from (default: %(default)s)",
     )
@@ -300,12 +235,11 @@ def main():
     input_values = parser.parse_args()
 
     try:
-        query_api(
-            input_values.term,
-            input_values.location,
-            input_values.histogram,
-            input_values.limit,
-        )
+        decide(input_values.term, 
+               input_values.location, 
+               input_values.search_limit, 
+               input_values.histogram, 
+               input_values.credentials)
     except HTTPError as error:
         sys.exit(
             "Encountered HTTP error {0} on {1}:\n {2}\nAbort program.".format(
@@ -313,8 +247,4 @@ def main():
                 error.url,
                 error.read(),
             )
-        )
-
-
-if __name__ == "__main__":
-    main()
+        )        
