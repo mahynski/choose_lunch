@@ -24,10 +24,10 @@ $ pip install -r requirements.txt
 
 ## Obtain Yelp developer account
 1. Sign up for a [yelp developers](https://www.yelp.com/developers) account.
-2. Obtain your client id and secret from your account 
+2. Obtain your API_KEY from your account 
 ([Manage App](https://www.yelp.com/developers/v3/manage_app)) to use their 
 Fusion API.
-3. Enter your "API_KEY" in a credentials.json file inside the repo directory.  
+3. Enter your API_KEY in a credentials.json file inside the repo directory.  
 For example
 ~~~ bash
 $ cat /path/to/choose_lunch/credentials.json
